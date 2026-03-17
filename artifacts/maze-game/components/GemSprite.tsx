@@ -1,13 +1,31 @@
 import React, { useEffect, useRef } from "react";
 import { Animated } from "react-native";
-import Svg, { Polygon, Defs, LinearGradient, Stop, Path } from "react-native-svg";
+import Svg, { Polygon, Defs, LinearGradient, Stop } from "react-native-svg";
 
 interface Props {
   size: number;
   alpha: number;
+  color?: string; // base accent color e.g. "#00DDFF" or "#FF00AA"
 }
 
-export function GemSprite({ size, alpha }: Props) {
+// Parse a hex color into r,g,b
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace("#", "");
+  if (h.length === 6) {
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  }
+  return [0, 200, 255];
+}
+
+function lighten([r, g, b]: [number, number, number], amt: number): string {
+  return `rgb(${Math.min(255, Math.round(r + (255 - r) * amt))},${Math.min(255, Math.round(g + (255 - g) * amt))},${Math.min(255, Math.round(b + (255 - b) * amt))})`;
+}
+
+function darken([r, g, b]: [number, number, number], amt: number): string {
+  return `rgb(${Math.round(r * (1 - amt))},${Math.round(g * (1 - amt))},${Math.round(b * (1 - amt))})`;
+}
+
+export function GemSprite({ size, alpha, color = "#00DDFF" }: Props) {
   const w = size;
   const h = size;
   const bobAnim = useRef(new Animated.Value(0)).current;
@@ -28,13 +46,20 @@ export function GemSprite({ size, alpha }: Props) {
     outputRange: [0, -size * 0.08],
   });
 
-  // Gem shape geometry
-  const tl = w * 0.28;   // table left x
-  const tr = w * 0.72;   // table right x
-  const gy = h * 0.40;   // girdle y
-  const tip = h;         // tip y
+  const rgb = hexToRgb(color);
+  const light = lighten(rgb, 0.55);
+  const mid = color;
+  const dark = darken(rgb, 0.55);
+  const shadow = darken(rgb, 0.75);
+  const highlight = lighten(rgb, 0.82);
+  const crownL = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.35)`;
+  const crownR = lighten(rgb, 0.3);
 
-  // Crown facet inner boundary
+  // Gem shape geometry
+  const tl = w * 0.28;
+  const tr = w * 0.72;
+  const gy = h * 0.40;
+  const tip = h;
   const il = w * 0.36;
   const ir = w * 0.64;
   const iy = h * 0.28;
@@ -51,43 +76,32 @@ export function GemSprite({ size, alpha }: Props) {
     <Animated.View style={{ transform: [{ translateY }], opacity: alpha }}>
       <Svg width={w} height={h}>
         <Defs>
-          <LinearGradient id="gBase" x1="0.2" y1="0" x2="0.8" y2="1">
-            <Stop offset="0" stopColor="#A0F8FF" stopOpacity="1" />
-            <Stop offset="0.45" stopColor="#00C8FF" stopOpacity="1" />
-            <Stop offset="1" stopColor="#0055DD" stopOpacity="1" />
+          <LinearGradient id={`gBase_${color}`} x1="0.2" y1="0" x2="0.8" y2="1">
+            <Stop offset="0" stopColor={light} stopOpacity="1" />
+            <Stop offset="0.45" stopColor={mid} stopOpacity="1" />
+            <Stop offset="1" stopColor={dark} stopOpacity="1" />
           </LinearGradient>
-          <LinearGradient id="gTable" x1="0" y1="0" x2="1" y2="1">
+          <LinearGradient id={`gTable_${color}`} x1="0" y1="0" x2="1" y2="1">
             <Stop offset="0" stopColor="#FFFFFF" stopOpacity="0.85" />
-            <Stop offset="1" stopColor="#B0F0FF" stopOpacity="0.6" />
+            <Stop offset="1" stopColor={light} stopOpacity="0.6" />
           </LinearGradient>
-          <LinearGradient id="gPav" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor="#0080CC" stopOpacity="0.8" />
-            <Stop offset="1" stopColor="#003080" stopOpacity="0.9" />
+          <LinearGradient id={`gPav_${color}`} x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={mid} stopOpacity="0.8" />
+            <Stop offset="1" stopColor={shadow} stopOpacity="0.9" />
           </LinearGradient>
         </Defs>
 
-        {/* Main body */}
-        <Polygon points={outerPoints} fill="url(#gBase)" />
-
-        {/* Left crown */}
-        <Polygon points={leftCrown} fill="rgba(0,180,255,0.35)" />
-        {/* Right crown */}
-        <Polygon points={rightCrown} fill="rgba(100,240,255,0.25)" />
-
-        {/* Left pavilion */}
-        <Polygon points={leftPav} fill="url(#gPav)" />
-        {/* Center pavilion */}
-        <Polygon points={centerPav} fill="rgba(0,60,160,0.7)" />
-        {/* Right pavilion */}
-        <Polygon points={rightPav} fill="rgba(0,100,200,0.6)" />
-
-        {/* Table (bright top) */}
-        <Polygon points={tablePoints} fill="url(#gTable)" />
-
-        {/* Specular highlight */}
+        <Polygon points={outerPoints} fill={`url(#gBase_${color})`} />
+        <Polygon points={leftCrown} fill={crownL} />
+        <Polygon points={rightCrown} fill={`${crownR}44`} />
+        <Polygon points={leftPav} fill={`url(#gPav_${color})`} />
+        <Polygon points={centerPav} fill={shadow} />
+        <Polygon points={rightPav} fill={dark} />
+        <Polygon points={tablePoints} fill={`url(#gTable_${color})`} />
         <Polygon
           points={`${tl + (ir - il) * 0.1},${h * 0.04} ${tl + (ir - il) * 0.4},${h * 0.04} ${il + (ir - il) * 0.3},${iy * 0.7}`}
-          fill="rgba(255,255,255,0.5)"
+          fill={highlight}
+          fillOpacity="0.5"
         />
       </Svg>
     </Animated.View>

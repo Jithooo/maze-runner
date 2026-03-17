@@ -3,14 +3,15 @@ import { View, Text, StyleSheet, Animated, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGame } from "./GameContext";
-import Colors from "@/constants/colors";
+import { THEMES } from "@/constants/colors";
 
 interface Props {
   width: number;
 }
 
 export default function GameHUD({ width }: Props) {
-  const { gameState, collectibles } = useGame();
+  const { gameState, collectibles, theme } = useGame();
+  const T = THEMES[theme];
   const insets = useSafeAreaInsets();
   const collected = collectibles.filter((c) => c.collected).length;
   const total = collectibles.length;
@@ -32,27 +33,26 @@ export default function GameHUD({ width }: Props) {
 
   return (
     <View style={[styles.container, { paddingTop: topPad + 8 }]} pointerEvents="none">
-      {/* Top row */}
       <View style={styles.topRow}>
         {/* Score */}
-        <View style={styles.hudCard}>
+        <View style={[styles.hudCard, { backgroundColor: T.hudBg, borderColor: T.hudBorder }]}>
           <Text style={styles.hudLabel}>SCORE</Text>
-          <Animated.Text style={[styles.hudValue, styles.scoreText, { transform: [{ scale: scoreAnim }] }]}>
+          <Animated.Text style={[styles.hudValue, { color: T.primary, transform: [{ scale: scoreAnim }] }]}>
             {gameState.score.toLocaleString()}
           </Animated.Text>
         </View>
 
         {/* Level */}
-        <View style={[styles.hudCard, styles.centerCard]}>
+        <View style={[styles.hudCard, { backgroundColor: T.hudBg, borderColor: `rgba(${T.glow},0.25)` }]}>
           <Text style={styles.hudLabel}>LEVEL</Text>
-          <Text style={[styles.hudValue, styles.levelText]}>{gameState.level + 1}</Text>
+          <Text style={[styles.hudValue, { color: T.accent }]}>{gameState.level + 1}</Text>
         </View>
 
         {/* Gems */}
-        <View style={styles.hudCard}>
+        <View style={[styles.hudCard, { backgroundColor: T.hudBg, borderColor: T.hudBorder }]}>
           <Text style={styles.hudLabel}>GEMS</Text>
           <View style={styles.gemRow}>
-            <Ionicons name="diamond" size={14} color={Colors.light.gold} />
+            <Ionicons name="diamond" size={14} color="#FFD700" />
             <Text style={[styles.hudValue, styles.gemText]}> {remaining}</Text>
           </View>
         </View>
@@ -60,9 +60,9 @@ export default function GameHUD({ width }: Props) {
 
       {/* Crosshair */}
       <View style={styles.crosshairContainer} pointerEvents="none">
-        <View style={styles.crosshairH} />
-        <View style={styles.crosshairV} />
-        <View style={styles.crosshairDot} />
+        <View style={[styles.crosshairH, { backgroundColor: `rgba(${T.glow},0.65)` }]} />
+        <View style={[styles.crosshairV, { backgroundColor: `rgba(${T.glow},0.65)` }]} />
+        <View style={[styles.crosshairDot, { backgroundColor: T.primary }]} />
       </View>
     </View>
   );
@@ -81,17 +81,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   hudCard: {
-    backgroundColor: "rgba(0,0,0,0.65)",
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 6,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "rgba(0,255,136,0.25)",
     minWidth: 80,
-  },
-  centerCard: {
-    borderColor: "rgba(0,221,255,0.3)",
   },
   hudLabel: {
     fontSize: 9,
@@ -103,13 +98,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontFamily: "Inter_700Bold",
     color: "#FFFFFF",
-  },
-  scoreText: {
-    color: "#00FF88",
-    fontSize: 16,
-  },
-  levelText: {
-    color: "#00DDFF",
   },
   gemText: {
     color: "#FFD700",
@@ -133,18 +121,15 @@ const styles = StyleSheet.create({
     position: "absolute",
     width: 20,
     height: 1.5,
-    backgroundColor: "rgba(0,255,136,0.7)",
   },
   crosshairV: {
     position: "absolute",
     width: 1.5,
     height: 20,
-    backgroundColor: "rgba(0,255,136,0.7)",
   },
   crosshairDot: {
     width: 3,
     height: 3,
     borderRadius: 1.5,
-    backgroundColor: "#00FF88",
   },
 });

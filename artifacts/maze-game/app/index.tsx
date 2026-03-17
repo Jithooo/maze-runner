@@ -24,21 +24,36 @@ import {
   isWall,
   Position,
 } from "@/constants/maze";
+import { THEMES, ThemeKey } from "@/constants/colors";
 import { castRays, RaycastResult } from "@/components/Raycaster";
 
-const COLLECT_RADIUS = 0.6;
+const COLLECT_RADIUS = 0.65;
 const HALF_FOV = Math.PI / 3;
 
 export default function GameScreen() {
-  const { gameState, maze, playerPos, collectibles, collectItem, startGame, nextLevel, restartGame, exitToMenu } = useGame();
+  const {
+    gameState,
+    maze,
+    playerPos,
+    collectibles,
+    theme,
+    collectItem,
+    startGame,
+    nextLevel,
+    restartGame,
+    exitToMenu,
+  } = useGame();
+
+  const T = THEMES[theme as ThemeKey];
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const controlState = useRef<ControlState>({
-    forward: false, backward: false, left: false, right: false, turnLeft: false, turnRight: false,
-  });
+
+  const controlState = useRef<ControlState>({ joyX: 0, joyY: 0 });
   const animFrameRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const playerPosRef = useRef<Position>(playerPos);
-  const [raycast, setRaycast] = useState<RaycastResult>(() => castRays(maze, playerPos.x, playerPos.y, playerPos.angle));
+  const [raycast, setRaycast] = useState<RaycastResult>(() =>
+    castRays(maze, playerPos.x, playerPos.y, playerPos.angle)
+  );
   const [displayPos, setDisplayPos] = useState<Position>(playerPos);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [showLevelMsg, setShowLevelMsg] = useState(false);
@@ -51,14 +66,13 @@ export default function GameScreen() {
     setDisplayPos(playerPos);
   }, [playerPos]);
 
-  // Check if all collected → level complete
   useEffect(() => {
     if (gameState.gamePhase !== "playing") return;
     if (collectibles.length > 0 && collectibles.every((c) => c.collected)) {
       setShowLevelMsg(true);
       Animated.sequence([
         Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: false }),
-        Animated.delay(1500),
+        Animated.delay(1600),
         Animated.timing(fadeAnim, { toValue: 0, duration: 400, useNativeDriver: false }),
       ]).start(() => {
         setShowLevelMsg(false);
@@ -83,20 +97,32 @@ export default function GameScreen() {
       const ctrl = controlState.current;
       let { x, y, angle } = playerPosRef.current;
 
-      if (ctrl.turnLeft) angle -= TURN_SPEED;
-      if (ctrl.turnRight) angle += TURN_SPEED;
+      // Analog rotation from joystick X axis
+      const joyX = ctrl.joyX;
+      const joyY = ctrl.joyY;
+
+      if (Math.abs(joyX) > 0.05) {
+        angle += TURN_SPEED * joyX * 2.0;
+      }
 
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
-      const MARGIN = 0.25;
+      const MARGIN = 0.22;
 
       let nx = x;
       let ny = y;
 
-      if (ctrl.forward)  { nx += cos * MOVE_SPEED; ny += sin * MOVE_SPEED; }
-      if (ctrl.backward) { nx -= cos * MOVE_SPEED; ny -= sin * MOVE_SPEED; }
-      if (ctrl.left)     { nx += sin * MOVE_SPEED; ny -= cos * MOVE_SPEED; }
-      if (ctrl.right)    { nx -= sin * MOVE_SPEED; ny += cos * MOVE_SPEED; }
+      // Analog movement from joystick Y axis
+      if (Math.abs(joyY) > 0.05) {
+        const speed = MOVE_SPEED * Math.abs(joyY) * 2.0;
+        if (joyY < 0) {
+          nx += cos * speed;
+          ny += sin * speed;
+        } else {
+          nx -= cos * speed;
+          ny -= sin * speed;
+        }
+      }
 
       if (!isWall(maze, nx + MARGIN, y) && !isWall(maze, nx - MARGIN, y)) x = nx;
       if (!isWall(maze, x, ny + MARGIN) && !isWall(maze, x, ny - MARGIN)) y = ny;
@@ -108,22 +134,17 @@ export default function GameScreen() {
       setRaycast(rc);
       setDisplayPos(newPos);
 
-      // Check collectible pickup
+      // Collectible pickup check
       collectibles.forEach((c) => {
         if (c.collected) return;
         const dx = c.x - x;
         const dy = c.y - y;
         if (Math.sqrt(dx * dx + dy * dy) < COLLECT_RADIUS) {
           collectItem(c.id);
-
-          // Confetti + haptics
           setConfettiTrigger((t) => t + 1);
-
           if (Platform.OS !== "web") {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           }
-
-          // Score popup near crosshair
           spawnScorePopup(width / 2, height * 0.42);
         }
       });
@@ -139,17 +160,13 @@ export default function GameScreen() {
   }, []);
 
   if (gameState.gamePhase === "menu") {
-    return <MenuScreen onStart={startGame} highScore={gameState.highScore} />;
-  }
-
-  if (gameState.gamePhase === "victory") {
-    return <VictoryScreen score={gameState.score} highScore={gameState.highScore} onRestart={restartGame} onMenu={exitToMenu} />;
+    return <MenuScreen onStart={startGame} highScore={gameState.highScore} theme={T} />;
   }
 
   const topMiniMap = Platform.OS === "web" ? 67 : insets.top;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: T.bg }]}>
       {/* 3D View */}
       <GameViewSimple
         width={width}
@@ -157,6 +174,7 @@ export default function GameScreen() {
         raycast={raycast}
         collectibles={collectibles}
         playerPos={displayPos}
+        theme={T}
       />
 
       {/* HUD */}
@@ -169,27 +187,37 @@ export default function GameScreen() {
 
       {/* Score popups */}
       {scorePopups.map((p) => (
-        <ScorePopup key={p.id} id={p.id} screenX={p.screenX} screenY={p.screenY} />
+        <ScorePopup key={p.id} id={p.id} screenX={p.screenX} screenY={p.screenY} accentColor={T.accent} />
       ))}
 
       {/* Confetti */}
       <ConfettiEffect trigger={confettiTrigger} originX={width / 2} originY={height * 0.45} />
 
-      {/* Controls */}
-      <Controls onControlChange={handleControlChange} />
+      {/* Joystick Controls */}
+      <Controls onControlChange={handleControlChange} primaryColor={T.primary} />
 
       {/* Level complete flash */}
       {showLevelMsg && (
-        <Animated.View style={[styles.levelFlash, { opacity: fadeAnim }]}>
-          <Text style={styles.levelFlashText}>LEVEL COMPLETE!</Text>
-          <Text style={styles.levelFlashSub}>+{collectibles.length * 100} pts</Text>
+        <Animated.View style={[styles.levelFlash, { opacity: fadeAnim, backgroundColor: T.levelFlashBg }]}>
+          <Text style={[styles.levelFlashText, { color: T.primary }]}>LEVEL COMPLETE!</Text>
+          <Text style={[styles.levelFlashSub, { color: T.accent }]}>
+            Level {gameState.level + 1}
+          </Text>
         </Animated.View>
+      )}
+
+      {/* Theme unlock toast */}
+      {gameState.totalGemsEver === 1000 && (
+        <View style={[styles.themeToast, { backgroundColor: T.hudBg, borderColor: T.primary }]}>
+          <Ionicons name="flame" size={18} color={T.primary} />
+          <Text style={[styles.themeToastText, { color: T.primary }]}>FIRE THEME UNLOCKED!</Text>
+        </View>
       )}
     </View>
   );
 }
 
-function ScorePopup({ screenX, screenY }: { id: number; screenX: number; screenY: number }) {
+function ScorePopup({ screenX, screenY, accentColor }: { id: number; screenX: number; screenY: number; accentColor: string }) {
   const translateY = useRef(new Animated.Value(0)).current;
   const opacity = useRef(new Animated.Value(1)).current;
   const scale = useRef(new Animated.Value(0.5)).current;
@@ -210,40 +238,37 @@ function ScorePopup({ screenX, screenY }: { id: number; screenX: number; screenY
 
   return (
     <Animated.View
-      style={[
-        styles.scorePopup,
-        {
-          left: screenX - 40,
-          top: screenY,
-          opacity,
-          transform: [{ translateY }, { scale }],
-        },
-      ]}
+      style={[styles.scorePopup, { left: screenX - 40, top: screenY, opacity, transform: [{ translateY }, { scale }] }]}
       pointerEvents="none"
     >
-      <Text style={styles.scorePopupText}>+100</Text>
+      <Text style={[styles.scorePopupText, { color: accentColor }]}>+100</Text>
     </Animated.View>
   );
 }
 
-// 3D raycaster renderer — gem sprites with wall occlusion (z-buffer)
-function GameViewSimple({ width, height, raycast, collectibles, playerPos }: {
+// 3D raycaster renderer — uses theme colors for walls/sky/floor
+function GameViewSimple({ width, height, raycast, collectibles, playerPos, theme }: {
   width: number;
   height: number;
   raycast: RaycastResult;
   collectibles: any[];
   playerPos: Position;
+  theme: typeof THEMES["default"];
 }) {
   const halfH = height / 2;
   const numRays = raycast.rays.length;
   const sliceW = width / numRays;
+  const [wvR, wvG, wvB] = theme.wallV;
+  const [whR, whG, whB] = theme.wallH;
+  const [fR, fG, fB] = theme.fog;
+  const glow = theme.glow;
 
   return (
-    <View style={{ width, height, overflow: "hidden", backgroundColor: "#0A0E1A" }}>
+    <View style={{ width, height, overflow: "hidden", backgroundColor: theme.bg }}>
       {/* Sky */}
-      <View style={{ position: "absolute", left: 0, top: 0, width, height: halfH, backgroundColor: "#080C14" }} />
+      <View style={{ position: "absolute", left: 0, top: 0, width, height: halfH, backgroundColor: theme.sky }} />
       {/* Floor */}
-      <View style={{ position: "absolute", left: 0, top: halfH, width, height: halfH, backgroundColor: "#0D1520" }} />
+      <View style={{ position: "absolute", left: 0, top: halfH, width, height: halfH, backgroundColor: theme.floor }} />
 
       {/* Wall slices */}
       {raycast.rays.map((ray: any, i: number) => {
@@ -251,13 +276,13 @@ function GameViewSimple({ width, height, raycast, collectibles, playerPos }: {
         const wallH = Math.min(height * 2, (height / dist) * 1.5);
         const top = (height - wallH) / 2;
         const fogT = Math.max(0, Math.min(1, (dist - 2) / 12));
-        const baseR = ray.wallType === "vertical" ? 30 : 22;
-        const baseG = ray.wallType === "vertical" ? 58 : 45;
-        const baseB = ray.wallType === "vertical" ? 95 : 74;
-        const r = Math.round(baseR + (10 - baseR) * fogT);
-        const g = Math.round(baseG + (14 - baseG) * fogT);
-        const b = Math.round(baseB + (26 - baseB) * fogT);
-        const glowAlpha = Math.max(0, (1 - dist / 4) * 0.4);
+        const bR = ray.wallType === "vertical" ? wvR : whR;
+        const bG = ray.wallType === "vertical" ? wvG : whG;
+        const bB = ray.wallType === "vertical" ? wvB : whB;
+        const r = Math.round(bR + (fR - bR) * fogT);
+        const g = Math.round(bG + (fG - bG) * fogT);
+        const b = Math.round(bB + (fB - bB) * fogT);
+        const glowAlpha = Math.max(0, (1 - dist / 4) * 0.38);
         return (
           <View
             key={i}
@@ -276,7 +301,7 @@ function GameViewSimple({ width, height, raycast, collectibles, playerPos }: {
                   position: "absolute",
                   top: 0, left: 0, right: 0,
                   height: 2,
-                  backgroundColor: `rgba(0,255,136,${glowAlpha})`,
+                  backgroundColor: `rgba(${glow},${glowAlpha})`,
                 }}
               />
             )}
@@ -284,7 +309,7 @@ function GameViewSimple({ width, height, raycast, collectibles, playerPos }: {
         );
       })}
 
-      {/* Gem sprites with z-buffer wall occlusion */}
+      {/* Gem sprites with z-buffer occlusion */}
       {collectibles
         .filter((c: any) => !c.collected)
         .map((c: any) => {
@@ -293,20 +318,17 @@ function GameViewSimple({ width, height, raycast, collectibles, playerPos }: {
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (dist > 10 || dist < 0.3) return null;
 
-          // Angle check — within FOV
           const spriteAngle = Math.atan2(dy, dx);
           let angleDiff = spriteAngle - playerPos.angle;
           while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
           while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
           const halfFov = HALF_FOV / 2;
-          if (Math.abs(angleDiff) > halfFov * 1.05) return null;
+          if (Math.abs(angleDiff) > halfFov * 1.1) return null;
 
           const screenX = width / 2 + (angleDiff / halfFov) * (width / 2);
-
-          // Z-buffer: check if wall is closer than gem at this column
           const rayIdx = Math.max(0, Math.min(numRays - 1, Math.round(screenX / sliceW)));
           const wallDist = raycast.rays[rayIdx]?.distance ?? 0;
-          if (wallDist < dist - 0.3) return null; // gem is behind a wall
+          if (wallDist < dist - 0.3) return null;
 
           const sz = Math.max(14, Math.min(90, (height / dist) * 0.7));
           const alpha = Math.min(1, Math.max(0.3, 1 - dist * 0.06));
@@ -322,7 +344,7 @@ function GameViewSimple({ width, height, raycast, collectibles, playerPos }: {
                 height: sz,
               }}
             >
-              <GemSprite size={sz} alpha={alpha} />
+              <GemSprite size={sz} alpha={alpha} color={theme.accent} />
             </View>
           );
         })}
@@ -330,7 +352,11 @@ function GameViewSimple({ width, height, raycast, collectibles, playerPos }: {
   );
 }
 
-function MenuScreen({ onStart, highScore }: { onStart: () => void; highScore: number }) {
+function MenuScreen({ onStart, highScore, theme }: {
+  onStart: () => void;
+  highScore: number;
+  theme: typeof THEMES["default"];
+}) {
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -347,13 +373,13 @@ function MenuScreen({ onStart, highScore }: { onStart: () => void; highScore: nu
   }, []);
 
   return (
-    <View style={[styles.menuContainer, { paddingTop: topPad + 40 }]}>
+    <View style={[styles.menuContainer, { paddingTop: topPad + 40, backgroundColor: theme.bg }]}>
       <View style={styles.menuContent}>
-        <View style={styles.menuLogo}>
-          <Ionicons name="navigate-circle" size={72} color="#00FF88" />
+        <View style={[styles.menuLogo, { borderColor: `rgba(${theme.glow},0.4)`, backgroundColor: `rgba(${theme.glow},0.08)` }]}>
+          <Ionicons name="navigate-circle" size={72} color={theme.primary} />
         </View>
-        <Text style={styles.menuTitle}>MAZE</Text>
-        <Text style={styles.menuSubtitle}>3D EXPLORER</Text>
+        <Text style={[styles.menuTitle, { color: theme.primary }]}>MAZE</Text>
+        <Text style={[styles.menuSubtitle, { color: theme.accent }]}>3D EXPLORER</Text>
 
         {highScore > 0 && (
           <View style={styles.highScoreCard}>
@@ -364,87 +390,39 @@ function MenuScreen({ onStart, highScore }: { onStart: () => void; highScore: nu
 
         <View style={styles.menuInstructions}>
           <View style={styles.instrRow}>
-            <Ionicons name="diamond" size={16} color="#00DDFF" />
+            <Ionicons name="diamond" size={16} color={theme.accent} />
             <Text style={styles.instrText}>Collect all gems to advance</Text>
           </View>
           <View style={styles.instrRow}>
-            <Ionicons name="map" size={16} color="#00DDFF" />
+            <Ionicons name="map" size={16} color={theme.accent} />
             <Text style={styles.instrText}>Mini-map shows nearby area</Text>
           </View>
           <View style={styles.instrRow}>
-            <Ionicons name="game-controller" size={16} color="#00FF88" />
-            <Text style={styles.instrText}>Use D-pad to move & turn</Text>
+            <Ionicons name="game-controller" size={16} color={theme.primary} />
+            <Text style={styles.instrText}>Joystick to move & turn</Text>
+          </View>
+          <View style={styles.instrRow}>
+            <Ionicons name="infinite" size={16} color={theme.primary} />
+            <Text style={styles.instrText}>Infinite levels — how far can you go?</Text>
           </View>
         </View>
 
         <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
           <Pressable
-            style={({ pressed }) => [styles.startBtn, pressed && styles.startBtnPressed]}
+            style={({ pressed }) => [
+              styles.startBtn,
+              { backgroundColor: theme.primary },
+              pressed && styles.startBtnPressed,
+            ]}
             onPress={() => {
               if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
               onStart();
             }}
           >
-            <Ionicons name="play" size={24} color="#0A0E1A" />
-            <Text style={styles.startBtnText}>START GAME</Text>
+            <Ionicons name="play" size={24} color={theme.bg} />
+            <Text style={[styles.startBtnText, { color: theme.bg }]}>START GAME</Text>
           </Pressable>
         </Animated.View>
-      </View>
-    </View>
-  );
-}
-
-function VictoryScreen({ score, highScore, onRestart, onMenu }: {
-  score: number; highScore: number; onRestart: () => void; onMenu: () => void;
-}) {
-  const insets = useSafeAreaInsets();
-  const topPad = Platform.OS === "web" ? 67 : insets.top;
-  const spinAnim = useRef(new Animated.Value(0)).current;
-  const [confetti, setConfetti] = useState(1);
-
-  useEffect(() => {
-    Animated.loop(
-      Animated.timing(spinAnim, { toValue: 1, duration: 3000, useNativeDriver: false })
-    ).start();
-    const t = setTimeout(() => setConfetti(2), 300);
-    return () => clearTimeout(t);
-  }, []);
-
-  const spin = spinAnim.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
-
-  return (
-    <View style={[styles.menuContainer, { paddingTop: topPad + 60 }]}>
-      <ConfettiEffect trigger={confetti} />
-      <View style={styles.menuContent}>
-        <Animated.View style={{ transform: [{ rotate: spin }] }}>
-          <Ionicons name="trophy" size={80} color="#FFD700" />
-        </Animated.View>
-        <Text style={[styles.menuTitle, { color: "#FFD700" }]}>VICTORY!</Text>
-        <Text style={styles.menuSubtitle}>ALL LEVELS CLEARED</Text>
-
-        <View style={styles.scoreDisplay}>
-          <Text style={styles.scoreDisplayLabel}>FINAL SCORE</Text>
-          <Text style={styles.scoreDisplayValue}>{score.toLocaleString()}</Text>
-          {score >= highScore && score > 0 && (
-            <View style={styles.newHighBadge}>
-              <Text style={styles.newHighText}>NEW BEST!</Text>
-            </View>
-          )}
-        </View>
-
-        <Pressable
-          style={({ pressed }) => [styles.startBtn, pressed && styles.startBtnPressed]}
-          onPress={onRestart}
-        >
-          <Ionicons name="refresh" size={22} color="#0A0E1A" />
-          <Text style={styles.startBtnText}>PLAY AGAIN</Text>
-        </Pressable>
-        <Pressable
-          style={({ pressed }) => [styles.menuBtn, pressed && styles.menuBtnPressed]}
-          onPress={onMenu}
-        >
-          <Text style={styles.menuBtnText}>MAIN MENU</Text>
-        </Pressable>
       </View>
     </View>
   );
@@ -453,24 +431,20 @@ function VictoryScreen({ score, highScore, onRestart, onMenu }: {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0A0E1A",
   },
   levelFlash: {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.5)",
   },
   levelFlashText: {
     fontSize: 36,
     fontFamily: "Inter_700Bold",
-    color: "#00FF88",
     letterSpacing: 4,
   },
   levelFlashSub: {
     fontSize: 20,
     fontFamily: "Inter_600SemiBold",
-    color: "#FFD700",
     marginTop: 8,
   },
   scorePopup: {
@@ -481,12 +455,27 @@ const styles = StyleSheet.create({
   scorePopupText: {
     fontSize: 28,
     fontFamily: "Inter_700Bold",
-    color: "#00DDFF",
     letterSpacing: 1,
+  },
+  themeToast: {
+    position: "absolute",
+    top: 120,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  themeToastText: {
+    fontSize: 13,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 2,
   },
   menuContainer: {
     flex: 1,
-    backgroundColor: "#0A0E1A",
     alignItems: "center",
   },
   menuContent: {
@@ -498,22 +487,18 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 30,
-    backgroundColor: "rgba(0,255,136,0.1)",
     borderWidth: 2,
-    borderColor: "rgba(0,255,136,0.4)",
     alignItems: "center",
     justifyContent: "center",
   },
   menuTitle: {
     fontSize: 56,
     fontFamily: "Inter_700Bold",
-    color: "#00FF88",
     letterSpacing: 10,
   },
   menuSubtitle: {
     fontSize: 14,
     fontFamily: "Inter_600SemiBold",
-    color: "#00DDFF",
     letterSpacing: 6,
     marginTop: -16,
   },
@@ -560,7 +545,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    backgroundColor: "#00FF88",
     paddingHorizontal: 48,
     paddingVertical: 18,
     borderRadius: 50,
@@ -572,50 +556,6 @@ const styles = StyleSheet.create({
   startBtnText: {
     fontSize: 16,
     fontFamily: "Inter_700Bold",
-    color: "#0A0E1A",
-    letterSpacing: 2,
-  },
-  menuBtn: {
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-    borderRadius: 50,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.2)",
-  },
-  menuBtnPressed: {
-    opacity: 0.7,
-  },
-  menuBtnText: {
-    fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
-    color: "rgba(255,255,255,0.7)",
-    letterSpacing: 2,
-  },
-  scoreDisplay: {
-    alignItems: "center",
-    gap: 4,
-  },
-  scoreDisplayLabel: {
-    fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
-    color: "rgba(255,255,255,0.5)",
-    letterSpacing: 3,
-  },
-  scoreDisplayValue: {
-    fontSize: 48,
-    fontFamily: "Inter_700Bold",
-    color: "#FFD700",
-  },
-  newHighBadge: {
-    backgroundColor: "#00FF88",
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 4,
-  },
-  newHighText: {
-    fontSize: 12,
-    fontFamily: "Inter_700Bold",
-    color: "#0A0E1A",
     letterSpacing: 2,
   },
 });

@@ -1,19 +1,21 @@
-import React, { createContext, useContext, useState, useCallback, useRef } from "react";
+import React, { createContext, useContext, useState, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   Collectible,
   MazeGrid,
   Position,
-  MAZES,
   getCollectibles,
   getStartPosition,
+  getMazeForLevel,
 } from "@/constants/maze";
+
+export type ThemeVariant = "default" | "fire";
 
 interface GameState {
   score: number;
   highScore: number;
   level: number;
-  lives: number;
+  totalGemsEver: number;
   gamePhase: "menu" | "playing" | "levelComplete" | "gameOver" | "victory";
 }
 
@@ -22,6 +24,7 @@ interface GameContextType {
   maze: MazeGrid;
   playerPos: Position;
   collectibles: Collectible[];
+  theme: ThemeVariant;
   setPlayerPos: (pos: Position) => void;
   collectItem: (id: string) => void;
   startGame: () => void;
@@ -38,67 +41,89 @@ export function useGame() {
   return ctx;
 }
 
-const HIGH_SCORE_KEY = "maze_high_score";
+const HIGH_SCORE_KEY = "maze_high_score_v2";
+const TOTAL_GEMS_KEY = "maze_total_gems";
 
 export function GameProvider({ children }: { children: React.ReactNode }) {
   const [gameState, setGameState] = useState<GameState>({
     score: 0,
     highScore: 0,
     level: 0,
-    lives: 3,
+    totalGemsEver: 0,
     gamePhase: "menu",
   });
 
-  const [maze, setMaze] = useState<MazeGrid>(MAZES[0]);
-  const [playerPos, setPlayerPos] = useState<Position>(getStartPosition(MAZES[0]));
+  const initialMaze = getMazeForLevel(0);
+  const [maze, setMaze] = useState<MazeGrid>(initialMaze);
+  const [playerPos, setPlayerPos] = useState<Position>(getStartPosition(initialMaze));
   const [collectibles, setCollectibles] = useState<Collectible[]>([]);
 
-  const loadHighScore = useCallback(async () => {
+  // Derived theme based on total gems
+  const theme: ThemeVariant = gameState.totalGemsEver >= 1000 ? "fire" : "default";
+
+  const loadPersisted = useCallback(async () => {
     try {
-      const stored = await AsyncStorage.getItem(HIGH_SCORE_KEY);
-      if (stored) {
-        setGameState((s) => ({ ...s, highScore: parseInt(stored, 10) }));
-      }
+      const [hs, tg] = await Promise.all([
+        AsyncStorage.getItem(HIGH_SCORE_KEY),
+        AsyncStorage.getItem(TOTAL_GEMS_KEY),
+      ]);
+      setGameState((s) => ({
+        ...s,
+        highScore: hs ? parseInt(hs, 10) : 0,
+        totalGemsEver: tg ? parseInt(tg, 10) : 0,
+      }));
     } catch {}
   }, []);
 
-  const saveHighScore = useCallback(async (score: number) => {
+  const savePersisted = useCallback(async (highScore: number, totalGems: number) => {
     try {
-      await AsyncStorage.setItem(HIGH_SCORE_KEY, score.toString());
+      await AsyncStorage.multiSet([
+        [HIGH_SCORE_KEY, highScore.toString()],
+        [TOTAL_GEMS_KEY, totalGems.toString()],
+      ]);
     } catch {}
   }, []);
 
   React.useEffect(() => {
-    loadHighScore();
-  }, [loadHighScore]);
+    loadPersisted();
+  }, [loadPersisted]);
 
-  const startGame = useCallback(() => {
-    const level = 0;
-    const currentMaze = MAZES[level];
-    const startPos = getStartPosition(currentMaze);
-    const cols = getCollectibles(currentMaze, level);
-    setMaze(currentMaze);
+  const startLevel = useCallback((level: number, prevScore: number, prevHigh: number, prevTotal: number) => {
+    const m = getMazeForLevel(level);
+    const startPos = getStartPosition(m);
+    const cols = getCollectibles(m, level);
+    setMaze(m);
     setPlayerPos(startPos);
     setCollectibles(cols);
     setGameState((s) => ({
       ...s,
-      score: 0,
+      score: prevScore,
+      highScore: prevHigh,
+      totalGemsEver: prevTotal,
       level,
-      lives: 3,
       gamePhase: "playing",
     }));
+  }, []);
+
+  const startGame = useCallback(() => {
+    setGameState((s) => {
+      const m = getMazeForLevel(0);
+      const startPos = getStartPosition(m);
+      const cols = getCollectibles(m, 0);
+      setMaze(m);
+      setPlayerPos(startPos);
+      setCollectibles(cols);
+      return { ...s, score: 0, level: 0, gamePhase: "playing" };
+    });
   }, []);
 
   const nextLevel = useCallback(() => {
     setGameState((prev) => {
       const nextLvl = prev.level + 1;
-      if (nextLvl >= MAZES.length) {
-        return { ...prev, gamePhase: "victory" };
-      }
-      const currentMaze = MAZES[nextLvl];
-      const startPos = getStartPosition(currentMaze);
-      const cols = getCollectibles(currentMaze, nextLvl);
-      setMaze(currentMaze);
+      const m = getMazeForLevel(nextLvl);
+      const startPos = getStartPosition(m);
+      const cols = getCollectibles(m, nextLvl);
+      setMaze(m);
       setPlayerPos(startPos);
       setCollectibles(cols);
       return { ...prev, level: nextLvl, gamePhase: "playing" };
@@ -111,13 +136,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     );
     setGameState((prev) => {
       const newScore = prev.score + 100;
+      const newTotal = prev.totalGemsEver + 1;
       const newHigh = Math.max(newScore, prev.highScore);
-      if (newHigh > prev.highScore) {
-        saveHighScore(newHigh);
-      }
-      return { ...prev, score: newScore, highScore: newHigh };
+      savePersisted(newHigh, newTotal);
+      return { ...prev, score: newScore, highScore: newHigh, totalGemsEver: newTotal };
     });
-  }, [saveHighScore]);
+  }, [savePersisted]);
 
   const restartGame = useCallback(() => {
     startGame();
@@ -134,6 +158,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         maze,
         playerPos,
         collectibles,
+        theme,
         setPlayerPos,
         collectItem,
         startGame,
