@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "3D Maze",
-    "slug": "maze-game",
+    "name": "3D Maze Runner",
+    "slug": "dmazerunner",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "maze-game",
+    "scheme": "dmazerunner",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {
@@ -14,10 +14,12 @@
       "backgroundColor": "#0A0E1A"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.dmazerunner.app"
     },
     "android": {
-      "backgroundColor": "#0A0E1A"
+      "backgroundColor": "#0A0E1A",
+      "package": "com.dmazerunner.app"
     },
     "web": {
       "favicon": "./assets/images/icon.png"
