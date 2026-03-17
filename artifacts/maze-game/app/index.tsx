@@ -16,20 +16,21 @@ import { useGame } from "@/components/GameContext";
 import GameHUD from "@/components/GameHUD";
 import Controls, { ControlState } from "@/components/Controls";
 import MiniMap from "@/components/MiniMap";
+import ConfettiEffect from "@/components/ConfettiEffect";
+import { GemSprite } from "@/components/GemSprite";
 import {
-  CELL_SIZE,
   MOVE_SPEED,
   TURN_SPEED,
   isWall,
   Position,
 } from "@/constants/maze";
-import { castRays } from "@/components/Raycaster";
-import Colors from "@/constants/colors";
+import { castRays, RaycastResult } from "@/components/Raycaster";
 
 const COLLECT_RADIUS = 0.6;
+const HALF_FOV = Math.PI / 3;
 
 export default function GameScreen() {
-  const { gameState, maze, playerPos, setPlayerPos, collectibles, collectItem, startGame, nextLevel, restartGame, exitToMenu } = useGame();
+  const { gameState, maze, playerPos, collectibles, collectItem, startGame, nextLevel, restartGame, exitToMenu } = useGame();
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const controlState = useRef<ControlState>({
@@ -37,10 +38,13 @@ export default function GameScreen() {
   });
   const animFrameRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const playerPosRef = useRef<Position>(playerPos);
-  const [raycast, setRaycast] = useState(() => castRays(maze, playerPos.x, playerPos.y, playerPos.angle));
-  const [displayPos, setDisplayPos] = useState(playerPos);
+  const [raycast, setRaycast] = useState<RaycastResult>(() => castRays(maze, playerPos.x, playerPos.y, playerPos.angle));
+  const [displayPos, setDisplayPos] = useState<Position>(playerPos);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [showLevelMsg, setShowLevelMsg] = useState(false);
+  const [confettiTrigger, setConfettiTrigger] = useState(0);
+  const [scorePopups, setScorePopups] = useState<Array<{ id: number; screenX: number; screenY: number }>>([]);
+  const popupIdRef = useRef(0);
 
   useEffect(() => {
     playerPosRef.current = playerPos;
@@ -63,6 +67,12 @@ export default function GameScreen() {
     }
   }, [collectibles, gameState.gamePhase]);
 
+  const spawnScorePopup = useCallback((screenX: number, screenY: number) => {
+    const id = ++popupIdRef.current;
+    setScorePopups((prev) => [...prev, { id, screenX, screenY }]);
+    setTimeout(() => setScorePopups((prev) => prev.filter((p) => p.id !== id)), 1000);
+  }, []);
+
   useEffect(() => {
     if (gameState.gamePhase !== "playing") {
       if (animFrameRef.current) clearInterval(animFrameRef.current);
@@ -83,10 +93,10 @@ export default function GameScreen() {
       let nx = x;
       let ny = y;
 
-      if (ctrl.forward) { nx += cos * MOVE_SPEED; ny += sin * MOVE_SPEED; }
+      if (ctrl.forward)  { nx += cos * MOVE_SPEED; ny += sin * MOVE_SPEED; }
       if (ctrl.backward) { nx -= cos * MOVE_SPEED; ny -= sin * MOVE_SPEED; }
-      if (ctrl.left) { nx += sin * MOVE_SPEED; ny -= cos * MOVE_SPEED; }
-      if (ctrl.right) { nx -= sin * MOVE_SPEED; ny += cos * MOVE_SPEED; }
+      if (ctrl.left)     { nx += sin * MOVE_SPEED; ny -= cos * MOVE_SPEED; }
+      if (ctrl.right)    { nx -= sin * MOVE_SPEED; ny += cos * MOVE_SPEED; }
 
       if (!isWall(maze, nx + MARGIN, y) && !isWall(maze, nx - MARGIN, y)) x = nx;
       if (!isWall(maze, x, ny + MARGIN) && !isWall(maze, x, ny - MARGIN)) y = ny;
@@ -105,9 +115,16 @@ export default function GameScreen() {
         const dy = c.y - y;
         if (Math.sqrt(dx * dx + dy * dy) < COLLECT_RADIUS) {
           collectItem(c.id);
+
+          // Confetti + haptics
+          setConfettiTrigger((t) => t + 1);
+
           if (Platform.OS !== "web") {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           }
+
+          // Score popup near crosshair
+          spawnScorePopup(width / 2, height * 0.42);
         }
       });
     }, 16);
@@ -115,7 +132,7 @@ export default function GameScreen() {
     return () => {
       if (animFrameRef.current) clearInterval(animFrameRef.current);
     };
-  }, [maze, collectibles, gameState.gamePhase]);
+  }, [maze, collectibles, gameState.gamePhase, width, height]);
 
   const handleControlChange = useCallback((state: ControlState) => {
     controlState.current = state;
@@ -133,16 +150,30 @@ export default function GameScreen() {
 
   return (
     <View style={styles.container}>
-      {/* 3D View — WebGL-free raycaster */}
-      <GameViewSimple width={width} height={height} raycast={raycast} collectibles={collectibles} playerPos={displayPos} />
+      {/* 3D View */}
+      <GameViewSimple
+        width={width}
+        height={height}
+        raycast={raycast}
+        collectibles={collectibles}
+        playerPos={displayPos}
+      />
 
       {/* HUD */}
       <GameHUD width={width} />
 
-      {/* Mini Map — offset below HUD top */}
+      {/* Mini Map */}
       <View style={{ position: "absolute", right: 16, top: topMiniMap + 80 }}>
         <MiniMap maze={maze} playerPos={displayPos} collectibles={collectibles} />
       </View>
+
+      {/* Score popups */}
+      {scorePopups.map((p) => (
+        <ScorePopup key={p.id} id={p.id} screenX={p.screenX} screenY={p.screenY} />
+      ))}
+
+      {/* Confetti */}
+      <ConfettiEffect trigger={confettiTrigger} originX={width / 2} originY={height * 0.45} />
 
       {/* Controls */}
       <Controls onControlChange={handleControlChange} />
@@ -158,17 +189,60 @@ export default function GameScreen() {
   );
 }
 
-// Pure View-based raycaster renderer (no Canvas/Skia dependency)
-function GameViewSimple({ width, height, raycast, collectibles, playerPos }: any) {
+function ScorePopup({ screenX, screenY }: { id: number; screenX: number; screenY: number }) {
+  const translateY = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(1)).current;
+  const scale = useRef(new Animated.Value(0.5)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(translateY, { toValue: -60, duration: 900, useNativeDriver: false }),
+      Animated.sequence([
+        Animated.timing(scale, { toValue: 1.4, duration: 200, useNativeDriver: false }),
+        Animated.timing(scale, { toValue: 1, duration: 150, useNativeDriver: false }),
+      ]),
+      Animated.sequence([
+        Animated.delay(400),
+        Animated.timing(opacity, { toValue: 0, duration: 500, useNativeDriver: false }),
+      ]),
+    ]).start();
+  }, []);
+
+  return (
+    <Animated.View
+      style={[
+        styles.scorePopup,
+        {
+          left: screenX - 40,
+          top: screenY,
+          opacity,
+          transform: [{ translateY }, { scale }],
+        },
+      ]}
+      pointerEvents="none"
+    >
+      <Text style={styles.scorePopupText}>+100</Text>
+    </Animated.View>
+  );
+}
+
+// 3D raycaster renderer — gem sprites with wall occlusion (z-buffer)
+function GameViewSimple({ width, height, raycast, collectibles, playerPos }: {
+  width: number;
+  height: number;
+  raycast: RaycastResult;
+  collectibles: any[];
+  playerPos: Position;
+}) {
   const halfH = height / 2;
   const numRays = raycast.rays.length;
   const sliceW = width / numRays;
 
   return (
     <View style={{ width, height, overflow: "hidden", backgroundColor: "#0A0E1A" }}>
-      {/* Sky gradient */}
+      {/* Sky */}
       <View style={{ position: "absolute", left: 0, top: 0, width, height: halfH, backgroundColor: "#080C14" }} />
-      {/* Floor gradient */}
+      {/* Floor */}
       <View style={{ position: "absolute", left: 0, top: halfH, width, height: halfH, backgroundColor: "#0D1520" }} />
 
       {/* Wall slices */}
@@ -184,7 +258,6 @@ function GameViewSimple({ width, height, raycast, collectibles, playerPos }: any
         const g = Math.round(baseG + (14 - baseG) * fogT);
         const b = Math.round(baseB + (26 - baseB) * fogT);
         const glowAlpha = Math.max(0, (1 - dist / 4) * 0.4);
-
         return (
           <View
             key={i}
@@ -201,9 +274,7 @@ function GameViewSimple({ width, height, raycast, collectibles, playerPos }: any
               <View
                 style={{
                   position: "absolute",
-                  top: 0,
-                  left: 0,
-                  right: 0,
+                  top: 0, left: 0, right: 0,
                   height: 2,
                   backgroundColor: `rgba(0,255,136,${glowAlpha})`,
                 }}
@@ -213,7 +284,7 @@ function GameViewSimple({ width, height, raycast, collectibles, playerPos }: any
         );
       })}
 
-      {/* Collectible sprites */}
+      {/* Gem sprites with z-buffer wall occlusion */}
       {collectibles
         .filter((c: any) => !c.collected)
         .map((c: any) => {
@@ -221,31 +292,38 @@ function GameViewSimple({ width, height, raycast, collectibles, playerPos }: any
           const dy = c.y - playerPos.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (dist > 10 || dist < 0.3) return null;
+
+          // Angle check — within FOV
           const spriteAngle = Math.atan2(dy, dx);
           let angleDiff = spriteAngle - playerPos.angle;
           while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
           while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-          const halfFov = Math.PI / 6;
-          if (Math.abs(angleDiff) > halfFov * 1.1) return null;
+          const halfFov = HALF_FOV / 2;
+          if (Math.abs(angleDiff) > halfFov * 1.05) return null;
+
           const screenX = width / 2 + (angleDiff / halfFov) * (width / 2);
-          const sz = Math.max(6, Math.min(70, (height / dist) * 0.65));
-          const alpha = Math.min(1, 0.95 - dist * 0.04);
+
+          // Z-buffer: check if wall is closer than gem at this column
+          const rayIdx = Math.max(0, Math.min(numRays - 1, Math.round(screenX / sliceW)));
+          const wallDist = raycast.rays[rayIdx]?.distance ?? 0;
+          if (wallDist < dist - 0.3) return null; // gem is behind a wall
+
+          const sz = Math.max(14, Math.min(90, (height / dist) * 0.7));
+          const alpha = Math.min(1, Math.max(0.3, 1 - dist * 0.06));
+
           return (
             <View
               key={c.id}
               style={{
                 position: "absolute",
                 left: screenX - sz / 2,
-                top: halfH - sz / 2,
+                top: halfH - sz * 0.55,
                 width: sz,
                 height: sz,
-                borderRadius: sz / 2,
-                backgroundColor: `rgba(255,215,0,${alpha})`,
-                shadowColor: "#FFD700",
-                shadowOpacity: 0.8,
-                shadowRadius: 6,
               }}
-            />
+            >
+              <GemSprite size={sz} alpha={alpha} />
+            </View>
           );
         })}
     </View>
@@ -270,9 +348,6 @@ function MenuScreen({ onStart, highScore }: { onStart: () => void; highScore: nu
 
   return (
     <View style={[styles.menuContainer, { paddingTop: topPad + 40 }]}>
-      {/* Background grid lines */}
-      <View style={styles.menuBg} />
-
       <View style={styles.menuContent}>
         <View style={styles.menuLogo}>
           <Ionicons name="navigate-circle" size={72} color="#00FF88" />
@@ -289,7 +364,7 @@ function MenuScreen({ onStart, highScore }: { onStart: () => void; highScore: nu
 
         <View style={styles.menuInstructions}>
           <View style={styles.instrRow}>
-            <Ionicons name="diamond" size={16} color="#FFD700" />
+            <Ionicons name="diamond" size={16} color="#00DDFF" />
             <Text style={styles.instrText}>Collect all gems to advance</Text>
           </View>
           <View style={styles.instrRow}>
@@ -319,21 +394,27 @@ function MenuScreen({ onStart, highScore }: { onStart: () => void; highScore: nu
   );
 }
 
-function VictoryScreen({ score, highScore, onRestart, onMenu }: { score: number; highScore: number; onRestart: () => void; onMenu: () => void }) {
+function VictoryScreen({ score, highScore, onRestart, onMenu }: {
+  score: number; highScore: number; onRestart: () => void; onMenu: () => void;
+}) {
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const spinAnim = useRef(new Animated.Value(0)).current;
+  const [confetti, setConfetti] = useState(1);
 
   useEffect(() => {
     Animated.loop(
       Animated.timing(spinAnim, { toValue: 1, duration: 3000, useNativeDriver: false })
     ).start();
+    const t = setTimeout(() => setConfetti(2), 300);
+    return () => clearTimeout(t);
   }, []);
 
   const spin = spinAnim.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
 
   return (
     <View style={[styles.menuContainer, { paddingTop: topPad + 60 }]}>
+      <ConfettiEffect trigger={confetti} />
       <View style={styles.menuContent}>
         <Animated.View style={{ transform: [{ rotate: spin }] }}>
           <Ionicons name="trophy" size={80} color="#FFD700" />
@@ -392,14 +473,21 @@ const styles = StyleSheet.create({
     color: "#FFD700",
     marginTop: 8,
   },
+  scorePopup: {
+    position: "absolute",
+    width: 80,
+    alignItems: "center",
+  },
+  scorePopupText: {
+    fontSize: 28,
+    fontFamily: "Inter_700Bold",
+    color: "#00DDFF",
+    letterSpacing: 1,
+  },
   menuContainer: {
     flex: 1,
     backgroundColor: "#0A0E1A",
     alignItems: "center",
-  },
-  menuBg: {
-    position: "absolute",
-    top: 0, left: 0, right: 0, bottom: 0,
   },
   menuContent: {
     alignItems: "center",

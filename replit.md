@@ -4,6 +4,17 @@
 
 pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
 
+## Artifacts
+
+### `artifacts/maze-game` — 3D Maze Game (Expo mobile)
+First-person 3D raycaster maze game. Navigate mazes, collect SVG-faceted gems, earn score.
+- Pure View-based raycaster (no WebGL/Skia) — wall slices rendered as absolutely-positioned Views
+- Gem sprites: SVG faceted diamond shape with bobbing animation, z-buffer wall occlusion
+- Mini-map: player-centered, FOV cone, gem diamond markers, fog-of-war
+- Confetti particle burst + `Haptics.notificationAsync(Success)` on gem collection
+- Score popup: animated +100 floating text on pickup
+- 2 levels defined in `constants/maze.ts` (MAZES array)
+
 ## Stack
 
 - **Monorepo tool**: pnpm workspaces
