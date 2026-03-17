@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from "react";
+import React, { createContext, useContext, useState, useCallback, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   Collectible,
@@ -105,19 +105,22 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
+  // Guard against scoring the same gem twice (stale-closure protection)
+  const scoredRef = useRef<Set<string>>(new Set());
+
   const startGame = useCallback(() => {
-    setGameState((s) => {
-      const m = getMazeForLevel(0);
-      const startPos = getStartPosition(m);
-      const cols = getCollectibles(m, 0);
-      setMaze(m);
-      setPlayerPos(startPos);
-      setCollectibles(cols);
-      return { ...s, score: 0, level: 0, gamePhase: "playing" };
-    });
+    scoredRef.current = new Set();
+    const m = getMazeForLevel(0);
+    const startPos = getStartPosition(m);
+    const cols = getCollectibles(m, 0);
+    setMaze(m);
+    setPlayerPos(startPos);
+    setCollectibles(cols);
+    setGameState((s) => ({ ...s, score: 0, level: 0, gamePhase: "playing" }));
   }, []);
 
   const nextLevel = useCallback(() => {
+    scoredRef.current = new Set();
     setGameState((prev) => {
       const nextLvl = prev.level + 1;
       const m = getMazeForLevel(nextLvl);
@@ -131,9 +134,14 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const collectItem = useCallback((id: string) => {
-    setCollectibles((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, collected: true } : c))
-    );
+    if (scoredRef.current.has(id)) return;
+    scoredRef.current.add(id);
+
+    setCollectibles((prev) => {
+      const gem = prev.find((c) => c.id === id);
+      if (!gem || gem.collected) return prev;
+      return prev.map((c) => (c.id === id ? { ...c, collected: true } : c));
+    });
     setGameState((prev) => {
       const newScore = prev.score + 100;
       const newTotal = prev.totalGemsEver + 1;

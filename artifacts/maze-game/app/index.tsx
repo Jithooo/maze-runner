@@ -27,7 +27,7 @@ import {
 import { THEMES, ThemeKey } from "@/constants/colors";
 import { castRays, RaycastResult } from "@/components/Raycaster";
 
-const COLLECT_RADIUS = 0.65;
+const COLLECT_RADIUS = 1.0; // generous — wider than any wall-blocked approach angle
 const HALF_FOV = Math.PI / 3;
 
 export default function GameScreen() {
@@ -51,6 +51,15 @@ export default function GameScreen() {
   const controlState = useRef<ControlState>({ joyX: 0, joyY: 0 });
   const animFrameRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const playerPosRef = useRef<Position>(playerPos);
+
+  // Keep a ref to collectibles so the game-loop closure never goes stale
+  const collectiblesRef = useRef(collectibles);
+  useEffect(() => { collectiblesRef.current = collectibles; }, [collectibles]);
+
+  // Prevent double-collection across stale ticks (reset every level)
+  const pendingCollectRef = useRef<Set<string>>(new Set());
+  useEffect(() => { pendingCollectRef.current = new Set(); }, [gameState.level]);
+
   const [raycast, setRaycast] = useState<RaycastResult>(() =>
     castRays(maze, playerPos.x, playerPos.y, playerPos.angle)
   );
@@ -66,6 +75,7 @@ export default function GameScreen() {
     setDisplayPos(playerPos);
   }, [playerPos]);
 
+  // Level-complete detection — uses the live collectibles ref
   useEffect(() => {
     if (gameState.gamePhase !== "playing") return;
     if (collectibles.length > 0 && collectibles.every((c) => c.collected)) {
@@ -87,6 +97,7 @@ export default function GameScreen() {
     setTimeout(() => setScorePopups((prev) => prev.filter((p) => p.id !== id)), 1000);
   }, []);
 
+  // Game loop — collectibles intentionally NOT in deps; read via ref to avoid stale closures
   useEffect(() => {
     if (gameState.gamePhase !== "playing") {
       if (animFrameRef.current) clearInterval(animFrameRef.current);
@@ -107,7 +118,7 @@ export default function GameScreen() {
 
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
-      const MARGIN = 0.22;
+      const MARGIN = 0.18; // reduced so player can get close enough to walls to collect gems
 
       let nx = x;
       let ny = y;
@@ -134,12 +145,14 @@ export default function GameScreen() {
       setRaycast(rc);
       setDisplayPos(newPos);
 
-      // Collectible pickup check
-      collectibles.forEach((c) => {
-        if (c.collected) return;
+      // Collectible pickup — read via ref, gate with pendingCollect to prevent double-fire
+      collectiblesRef.current.forEach((c) => {
+        if (c.collected || pendingCollectRef.current.has(c.id)) return;
         const dx = c.x - x;
         const dy = c.y - y;
         if (Math.sqrt(dx * dx + dy * dy) < COLLECT_RADIUS) {
+          // Mark immediately so subsequent ticks within the same stale closure don't re-fire
+          pendingCollectRef.current.add(c.id);
           collectItem(c.id);
           setConfettiTrigger((t) => t + 1);
           if (Platform.OS !== "web") {
@@ -153,7 +166,9 @@ export default function GameScreen() {
     return () => {
       if (animFrameRef.current) clearInterval(animFrameRef.current);
     };
-  }, [maze, collectibles, gameState.gamePhase, width, height]);
+  // collectibles intentionally omitted — read via collectiblesRef to prevent loop restarts
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maze, gameState.gamePhase, width, height]);
 
   const handleControlChange = useCallback((state: ControlState) => {
     controlState.current = state;
