@@ -1,9 +1,9 @@
 {
   "expo": {
-    "name": "3D Maze Runner",
+    "name": "Maze 3D Explorer",
     "slug": "dmazerunner",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "landscape",
     "icon": "./assets/images/icon.png",
     "scheme": "dmazerunner",
     "userInterfaceStyle": "dark",
@@ -14,7 +14,7 @@
       "backgroundColor": "#0A0E1A"
     },
     "ios": {
-      "supportsTablet": false,
+      "supportsTablet": true,
       "bundleIdentifier": "com.dmazerunner.app"
     },
     "android": {
@@ -22,7 +22,19 @@
       "package": "com.dmazerunner.app"
     },
     "web": {
-      "favicon": "./assets/images/icon.png"
+      "favicon": "./assets/images/icon.png",
+      "bundler": "metro",
+      "output": "static",
+      "name": "Maze 3D Explorer",
+      "shortName": "Maze",
+      "description": "A fast-paced 3D maze runner — collect gems, change themes, beat 10,000!",
+      "themeColor": "#00FF88",
+      "backgroundColor": "#0A0E1A",
+      "display": "fullscreen",
+      "orientation": "landscape",
+      "startUrl": "/",
+      "lang": "en",
+      "scope": "/"
     },
     "plugins": [
       [
