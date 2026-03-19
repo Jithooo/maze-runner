@@ -1,0 +1,27 @@
+{
+  "name": "Maze 3D Explorer",
+  "short_name": "Maze",
+  "description": "A fast-paced 3D maze runner — collect gems, cycle themes, beat 10,000!",
+  "start_url": "/maze-runner/",
+  "scope": "/maze-runner/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0A0E1A",
+  "theme_color": "#00FF88",
+  "icons": [
+    {
+      "src": "/maze-runner/assets/images/pwa-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/maze-runner/assets/images/pwa-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["games", "entertainment"],
+  "lang": "en"
+}
